@@ -19,7 +19,6 @@ import com.nukkitx.nbt.tag.Tag;
 public class BedrockSubChunk {
     private final int cx, cy, cz;
     private final int dim;
-    private final int tag;
     private final byte[] key;
     private static final int keySizes[] = { 1, 2, 3, 4, 5, 6, 8, 16 };
     private static void writeLEInt(OutputStream out, int val) throws IOException {
@@ -39,12 +38,12 @@ public class BedrockSubChunk {
         return val;
     }
 
-    private class StorageChunk {
-        private ArrayList<Tag<?>> blockPalette = new ArrayList<Tag<?>>();
+    public class StorageChunk {
+        private ArrayList<CompoundTag> blockPalette = new ArrayList<CompoundTag>();
         // Ordered (X*256) + (Z*16) + Y
         private int[] blocks = new int[4096];
 
-        void loadFromInputStream(InputStream bais) throws IOException {
+        private void loadFromInputStream(InputStream bais) throws IOException {
             int storageVersion = bais.read();
             int bitsPerBlock = storageVersion >> 1;
             int blocksPerWord = 32 / bitsPerBlock;
@@ -60,12 +59,12 @@ public class BedrockSubChunk {
             int paletteSize = readLEInt(bais);
             NBTInputStream stream = NbtUtils.createReaderLE(bais);
             for (int i = 0; i < paletteSize; i++) {
-                Tag<?> ptag = stream.readTag();
+                CompoundTag ptag = (CompoundTag) stream.readTag();
                 //System.out.println(ptag.toString());
                 blockPalette.add(ptag);
             }
         }
-        void writeToOutputStream(OutputStream baos) throws IOException {
+        private void writeToOutputStream(OutputStream baos) throws IOException {
             int paletteCnt = blockPalette.size();   // Get count
             if (paletteCnt == 0) {
                 addToPalette("minecraft:air");
@@ -97,15 +96,38 @@ public class BedrockSubChunk {
                 stream.write(blockPalette.get(i));
             }
         }
+        // Add full tag to palette
+        public int addToPalette(CompoundTag blocktag) {
+            blockPalette.add(blocktag);
+            return blockPalette.size() - 1;
+        }
         // Add new block to palette (we only add no state blocks, at this point)
-        int addToPalette(String blockname) {
+        // @returns index of palette entry
+        public int addToPalette(String blockname) {
             CompoundTagBuilder cbld = CompoundTagBuilder.builder();
             cbld.stringTag("name", blockname);
             CompoundTagBuilder cbld2 = CompoundTagBuilder.builder();
             cbld.tag(cbld2.build("states"));
             CompoundTag ctag = cbld.buildRootTag();
-            blockPalette.add(ctag);
-            return blockPalette.size() - 1;
+            return addToPalette(ctag);
+        }
+        // Find block in palette
+        // @returns -1 if not found
+        public int findInPalette(String blockname) {
+            int len = blockPalette.size();
+            for (int i = 0; i < len; i++) {
+                CompoundTag v = (CompoundTag) blockPalette.get(i);
+                if (v.getAsString("name").equals(blockname)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        // Replace palette record
+        public CompoundTag replaceInPalette(int index, CompoundTag newblk) {
+            CompoundTag oldtag = blockPalette.get(index);
+            blockPalette.set(index, newblk);
+            return oldtag;
         }
     };
     private StorageChunk[] chunks;
@@ -120,7 +142,7 @@ public class BedrockSubChunk {
             dim = bb.getInt();
         }
         this.dim = dim;
-        tag = bb.get(); // Always 47 for now
+        bb.get(); // Always 47 for now
         cy = bb.get();
         this.key = new byte[key.length];
         System.arraycopy(key, 0, this.key, 0, key.length);        
