@@ -25,7 +25,7 @@ public class MigrateToBE {
 		System.out.println("MigrateToBE starting");
 		try {
 			Options options = new Options();
-			options.createIfMissing(true);
+			//options.createIfMissing(true);
 			options.compressionType(CompressionType.ZLIB_RAW);
 			db = factory.open(new File("CastleBlack/db"), options);
 
@@ -33,16 +33,44 @@ public class MigrateToBE {
 			while (iter.hasNext()) {
 				Entry<byte[], byte[]> rec = iter.next();
 				byte[] key = rec.getKey();
-				if ((key.length != 10) && (key.length != 14))
+				// Not a subchunk key length
+				if ((key.length != 10) && (key.length != 14)) {
 					continue;
+				}
+				// Not a subchunk record
+				if (key[key.length-2] != (byte)47) {
+					continue;
+				}
 				byte[] in = rec.getValue();
-				BedrockSubChunk bsc = new BedrockSubChunk(key, in);
+				BedrockSubChunk bsc = new BedrockSubChunk(key, in, false);
+				if (!bsc.isGood()) {
+					System.out.println("bad subchunk");
+					continue;
+				}
 
 				byte[] out = bsc.getValue();
-				if (in.length != out.length) {
-					System.out.println("inlen=" + in.length + ",outlen=" + out.length);
-				}
-				db.put(key, out, new WriteOptions());
+
+				 //if (in.length != out.length) {
+				 //	System.out.println("inlen=" + in.length + ",outlen=" + out.length);
+				 //	bsc = new BedrockSubChunk(key, in, true);
+				 //	bsc.getValue(true);
+				 //}
+				// else {
+				// 	boolean match = true;
+				// 	for (int i = 0; i < in.length; i++) {
+				// 		if (in[i] != out[i]) { match = false; break; }
+				// 	}
+				// 	if (!match) {
+				// 		for (int i = 0; i < in.length; i++) {
+				// 			char c = (in[i] == out[i])?'=':'!';
+				// 			System.out.print(String.format("%02X%c%02X ", in[i], c, out[i]));
+				// 			if ((i % 16) == 15) System.out.println();
+				// 		}
+				// 		bsc.getValue(true);
+				// 		System.exit(1);
+				// 	}
+				// }
+				db.put(key, out);
 			}
 		} catch (IOException iox) {
 			System.out.println("ERROR: " + iox.toString());
@@ -51,7 +79,9 @@ public class MigrateToBE {
 		  // database and avoid resource leaks.
 		  if (db != null) {
 			  try {
-				  db.close();
+				System.out.println("Closing DB");
+				db.close();
+				  System.out.println("Close DB");
 			  } catch (IOException x) {
 			  }
 		  }

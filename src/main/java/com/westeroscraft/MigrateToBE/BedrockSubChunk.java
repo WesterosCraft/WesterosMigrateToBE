@@ -9,17 +9,18 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 
-import com.nukkitx.nbt.CompoundTagBuilder;
-import com.nukkitx.nbt.NbtUtils;
-import com.nukkitx.nbt.stream.NBTInputStream;
-import com.nukkitx.nbt.stream.NBTOutputStream;
-import com.nukkitx.nbt.tag.CompoundTag;
-import com.nukkitx.nbt.tag.Tag;
+import com.westeroscraft.MigrateToBE.nbt.CompoundTagBuilder;
+import com.westeroscraft.MigrateToBE.nbt.NbtUtils;
+import com.westeroscraft.MigrateToBE.nbt.stream.NBTInputStream;
+import com.westeroscraft.MigrateToBE.nbt.stream.NBTOutputStream;
+import com.westeroscraft.MigrateToBE.nbt.tag.CompoundTag;
 
 public class BedrockSubChunk {
     private final int cx, cy, cz;
     private final int dim;
+    private int ver;
     private final byte[] key;
+    private boolean good = false;
     private static final int keySizes[] = { 1, 2, 3, 4, 5, 6, 8, 16 };
     private static void writeLEInt(OutputStream out, int val) throws IOException {
         byte[] v = new byte[4];
@@ -43,7 +44,7 @@ public class BedrockSubChunk {
         // Ordered (X*256) + (Z*16) + Y
         private int[] blocks = new int[4096];
 
-        private void loadFromInputStream(InputStream bais) throws IOException {
+        private void loadFromInputStream(InputStream bais, int storeid, boolean debug) throws IOException {
             int storageVersion = bais.read();
             int bitsPerBlock = storageVersion >> 1;
             int blocksPerWord = 32 / bitsPerBlock;
@@ -60,23 +61,31 @@ public class BedrockSubChunk {
             NBTInputStream stream = NbtUtils.createReaderLE(bais);
             for (int i = 0; i < paletteSize; i++) {
                 CompoundTag ptag = (CompoundTag) stream.readTag();
-                //System.out.println(ptag.toString());
+                //System.out.println("store=" + storeid + ",id=" + i + ":" + ptag.toString());
                 blockPalette.add(ptag);
             }
+            stream.close();
+            if (debug)
+                System.out.println(String.format("in%d: sv=%d,bpb=%d,bpw=%d,wc=%d,m=%x,ps=%d", storeid, storageVersion, bitsPerBlock, blocksPerWord, wordCount, mask, paletteSize));
         }
-        private void writeToOutputStream(OutputStream baos) throws IOException {
-            int paletteCnt = blockPalette.size();   // Get count
-            if (paletteCnt == 0) {
+        private void writeToOutputStream(OutputStream baos, int storeid, boolean debug) throws IOException {
+            int maxval = 0;
+            for (int i = 0; i < blocks.length; i++) {
+                if (maxval < blocks[i]) maxval = blocks[i];
+            }
+            int paletteSize = blockPalette.size();   // Get count
+            if (paletteSize == 0) {
                 addToPalette("minecraft:air");
-                paletteCnt = blockPalette.size();
+                paletteSize = blockPalette.size();
             }
             int bitsPerBlock = 16;
             for (int i = 0; i < keySizes.length; i++) {
-                if (paletteCnt <= (1 << keySizes[i])) {
+                if (maxval < (1 << keySizes[i])) {
                     bitsPerBlock = keySizes[i];
                     break;
                 }
             }
+            byte storageVersion = (byte)(bitsPerBlock << 1);
             baos.write(bitsPerBlock << 1);
             int blocksPerWord = 32 / bitsPerBlock;
             int wordCount = (4095 + blocksPerWord) / blocksPerWord;
@@ -89,12 +98,28 @@ public class BedrockSubChunk {
                 }
                 writeLEInt(baos, word);
             }
-            writeLEInt(baos, paletteCnt);   // Write palette length
-            NbtUtils.createWriterLE(baos);
+            writeLEInt(baos, paletteSize);   // Write palette length
             NBTOutputStream stream = NbtUtils.createWriterLE(baos);
-            for (int i = 0; i < paletteCnt; i++) {
-                stream.write(blockPalette.get(i));
+            for (int i = 0; i < paletteSize; i++) {
+                CompoundTag ct = blockPalette.get(i);
+                if (debug) {
+                    System.out.println(ct.toString());
+                    ByteArrayOutputStream b = new ByteArrayOutputStream();
+                    NBTOutputStream os = NbtUtils.createWriterLE(b);
+                    os.write(ct);
+                    os.close();
+                    byte[] v = b.toByteArray();
+                    for (int j = 0; j < v.length; j++) {
+                        System.out.print(String.format("%02X:", v[j]));
+                    }
+                    System.out.println();
+                }
+                stream.write(ct);
             }
+            stream.close();
+            if (debug)
+                System.out.println(String.format("out%d: sv=%d,bpb=%d,bpw=%d,wc=%d,m=%x,ps=%d", storeid, storageVersion, bitsPerBlock, blocksPerWord, wordCount, mask, paletteSize));
+
         }
         // Add full tag to palette
         public int addToPalette(CompoundTag blocktag) {
@@ -117,7 +142,7 @@ public class BedrockSubChunk {
             int len = blockPalette.size();
             for (int i = 0; i < len; i++) {
                 CompoundTag v = (CompoundTag) blockPalette.get(i);
-                if (v.getAsString("name").equals(blockname)) {
+                if (v.getString("name").equals(blockname)) {
                     return i;
                 }
             }
@@ -132,7 +157,9 @@ public class BedrockSubChunk {
     };
     private StorageChunk[] chunks;
 
-    public BedrockSubChunk(byte[] key, byte[] value) throws IOException {
+    public BedrockSubChunk(byte[] key, byte[] value, boolean debug) throws IOException {
+        this.key = new byte[key.length];
+        System.arraycopy(key, 0, this.key, 0, key.length);
         ByteBuffer bb = ByteBuffer.wrap(key);
         bb.order(ByteOrder.LITTLE_ENDIAN);
         cx = bb.getInt();
@@ -142,23 +169,26 @@ public class BedrockSubChunk {
             dim = bb.getInt();
         }
         this.dim = dim;
-        bb.get(); // Always 47 for now
+        int tagid = bb.get(); // Always 47 for now
         cy = bb.get();
-        this.key = new byte[key.length];
-        System.arraycopy(key, 0, this.key, 0, key.length);        
+        if (tagid != 47) {
+            // Not SubChunk
+            return;
+        }
         // Wrap value in bytebuffer        
         ByteArrayInputStream bais = new ByteArrayInputStream(value);
-        int ver = bais.read();
+        ver = bais.read();
         if (ver != 8) {
-            System.out.println("ver != 8");
+            System.out.println("ver != 8: " + ver);
         }
         int storageCount = bais.read();
         // Creaste storage chunk for each
         chunks = new StorageChunk[storageCount];
         for (int sc = 0; sc < storageCount; sc++) {
             chunks[sc] = new StorageChunk();
-            chunks[sc].loadFromInputStream(bais);
+            chunks[sc].loadFromInputStream(bais, sc, debug);
         }
+        good = true;
     }
 
     public byte[] getKey() {
@@ -166,12 +196,16 @@ public class BedrockSubChunk {
     }
 
     public byte[] getValue() throws IOException {
+        return getValue(false);
+    }
+
+    public byte[] getValue(boolean debug) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        baos.write(8);  // Always 8
+        baos.write(ver);  // Always 8(?)
         baos.write(chunks.length);  // Number of chunks
         // Write each storage chunk
         for (int sc = 0; sc < chunks.length; sc++) {
-            chunks[sc].writeToOutputStream(baos);
+            chunks[sc].writeToOutputStream(baos, sc, debug);
         }
         return baos.toByteArray();
     }
@@ -180,4 +214,6 @@ public class BedrockSubChunk {
     public int getCY() { return cy; }
     public int getCZ() { return cz; }
     public int getDIM() { return dim; }
+    public int getVER() { return ver; }
+    public boolean isGood() { return good; }
 }
