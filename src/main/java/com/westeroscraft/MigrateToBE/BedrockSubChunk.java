@@ -43,10 +43,12 @@ public class BedrockSubChunk {
         private ArrayList<CompoundTag> blockPalette = new ArrayList<CompoundTag>();
         // Ordered (X*256) + (Z*16) + Y
         private int[] blocks = new int[4096];
+        private int bpb;
 
         private void loadFromInputStream(InputStream bais, int storeid, boolean debug) throws IOException {
             int storageVersion = bais.read();
             int bitsPerBlock = storageVersion >> 1;
+            bpb = bitsPerBlock;
             int blocksPerWord = 32 / bitsPerBlock;
             int wordCount = (4095 + blocksPerWord) / blocksPerWord;
             int mask = ((1 << bitsPerBlock) - 1);
@@ -84,6 +86,10 @@ public class BedrockSubChunk {
                     bitsPerBlock = keySizes[i];
                     break;
                 }
+            }
+            if (bitsPerBlock < this.bpb) {
+                bitsPerBlock = this.bpb;
+                System.out.println("Forcing bpb to " + this.bpb);
             }
             byte storageVersion = (byte)(bitsPerBlock << 1);
             baos.write(bitsPerBlock << 1);
@@ -154,6 +160,16 @@ public class BedrockSubChunk {
             blockPalette.set(index, newblk);
             return oldtag;
         }
+        // Replace palette record
+        public CompoundTag replaceInPalette(int index, String newblkid) {
+            CompoundTagBuilder cbld = CompoundTagBuilder.builder();
+            cbld.stringTag("name", newblkid);
+            CompoundTagBuilder cbld2 = CompoundTagBuilder.builder();
+            cbld.tag(cbld2.build("states"));
+            CompoundTag ctag = cbld.buildRootTag();
+            return replaceInPalette(index, ctag);
+        }
+        
     };
     private StorageChunk[] chunks;
 
@@ -216,4 +232,8 @@ public class BedrockSubChunk {
     public int getDIM() { return dim; }
     public int getVER() { return ver; }
     public boolean isGood() { return good; }
+
+    public StorageChunk getStorageChunk(int idx) {
+        return chunks[idx];
+    }
 }
