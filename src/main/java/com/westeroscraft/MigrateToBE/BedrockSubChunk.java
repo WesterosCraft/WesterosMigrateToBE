@@ -87,10 +87,6 @@ public class BedrockSubChunk {
                     break;
                 }
             }
-            if (bitsPerBlock < this.bpb) {
-                bitsPerBlock = this.bpb;
-                System.out.println("Forcing bpb to " + this.bpb);
-            }
             byte storageVersion = (byte)(bitsPerBlock << 1);
             baos.write(bitsPerBlock << 1);
             int blocksPerWord = 32 / bitsPerBlock;

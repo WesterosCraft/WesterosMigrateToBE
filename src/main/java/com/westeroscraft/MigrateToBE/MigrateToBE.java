@@ -25,12 +25,14 @@ public class MigrateToBE {
 		DBIterator iter = null;
 		Snapshot ss = null;
 		System.out.println("MigrateToBE starting");
+		String bedrock_dir = "CastleBlackBE";
+		String javaedition_dir = "CastleBlack";
 		try {
 			Options options = new Options();
 			// options.createIfMissing(true);
 			options.compressionType(CompressionType.ZLIB).verifyChecksums(false).
 				blockSize(256*1024).cacheSize(8*1024*1024).writeBufferSize(512*1024*1024);
-			db = factory.open(new File("CastleBlack/db"), options);
+			db = factory.open(new File(bedrock_dir + "/db"), options);
 
 			ReadOptions ro = new ReadOptions();
 			ss = db.getSnapshot();
@@ -127,7 +129,7 @@ public class MigrateToBE {
 			// options.createIfMissing(true);
 			options.compressionType(CompressionType.ZLIB).verifyChecksums(false).
 				blockSize(256*1024).cacheSize(8*1024*1024).writeBufferSize(512*1024*1024);
-			db = factory.open(new File("CastleBlack/db"), options);
+			db = factory.open(new File(bedrock_dir + "/db"), options);
 		} catch (IOException iox) {
 			System.out.println("ERROR: " + iox.toString());
 		} finally {

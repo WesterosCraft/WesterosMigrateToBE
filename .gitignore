@@ -1,6 +1,7 @@
 /.gradle/
 /build/
 /CastleBlack
+/CastleBlackBE
 /bin
 /example
 *.mcworld
