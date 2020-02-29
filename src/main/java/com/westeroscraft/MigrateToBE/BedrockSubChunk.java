@@ -39,16 +39,42 @@ public class BedrockSubChunk {
         return val;
     }
 
+    public static byte[] makeSubChunkKey(int cx, int cy, int cz, int dim) {
+        byte[] key;
+        if (dim == 0) {
+            key = new byte[10];
+        }
+        else {
+            key = new byte[14];
+        }
+        int off = 0;
+        // Write chunk X
+        for (int i = 0; i < 4; i++) {
+            key[off++] = (byte)((cx >> (i*8)) & 0xFF);
+        }
+        // Write chunk Z
+        for (int i = 0; i < 4; i++) {
+            key[off++] = (byte)((cz >> (i*8)) & 0xFF);
+        }
+        if (dim != 0) {
+            // Write DIM
+            for (int i = 0; i < 4; i++) {
+                key[off++] = (byte)((dim >> (i*8)) & 0xFF);
+            }
+        }
+        key[off++] = (byte) 47; // tag ID
+        key[off++] = (byte) cy;
+        return key; 
+    }
+
     public class StorageChunk {
         private ArrayList<CompoundTag> blockPalette = new ArrayList<CompoundTag>();
         // Ordered (X*256) + (Z*16) + Y
         private int[] blocks = new int[4096];
-        private int bpb;
 
         private void loadFromInputStream(InputStream bais, int storeid, boolean debug) throws IOException {
             int storageVersion = bais.read();
             int bitsPerBlock = storageVersion >> 1;
-            bpb = bitsPerBlock;
             int blocksPerWord = 32 / bitsPerBlock;
             int wordCount = (4095 + blocksPerWord) / blocksPerWord;
             int mask = ((1 << bitsPerBlock) - 1);
@@ -165,7 +191,18 @@ public class BedrockSubChunk {
             CompoundTag ctag = cbld.buildRootTag();
             return replaceInPalette(index, ctag);
         }
-        
+        // Set block to block ID
+        public void setBlockToBlockName(int bx, int by, int bz, String blkname) {
+            int idx = findInPalette(blkname);
+            if (idx < 0) {
+                idx = addToPalette(blkname);
+            }
+            // XZY
+            int off = ((bx & 0xF) << 8) | ((bz & 0xF) << 4) | (by & 0xF);
+           // int prev = blocks[off];
+           // System.out.println(String.format("set(%d,%d,%d,%s) - off=%03X, idx=%d, prev=%d", bx, by, bz, blkname, off, idx, prev));
+            blocks[off] = idx;
+        }
     };
     private StorageChunk[] chunks;
 
@@ -187,18 +224,26 @@ public class BedrockSubChunk {
             // Not SubChunk
             return;
         }
-        // Wrap value in bytebuffer        
-        ByteArrayInputStream bais = new ByteArrayInputStream(value);
-        ver = bais.read();
-        if (ver != 8) {
-            System.out.println("ver != 8: " + ver);
+        if (value != null) {
+            // Wrap value in bytebuffer        
+            ByteArrayInputStream bais = new ByteArrayInputStream(value);
+            ver = bais.read();
+            if (ver != 8) {
+                System.out.println("ver != 8: " + ver);
+            }
+            int storageCount = bais.read();
+            // Creaste storage chunk for each
+            chunks = new StorageChunk[storageCount];
+            for (int sc = 0; sc < storageCount; sc++) {
+                chunks[sc] = new StorageChunk();
+                chunks[sc].loadFromInputStream(bais, sc, debug);
+            }
         }
-        int storageCount = bais.read();
-        // Creaste storage chunk for each
-        chunks = new StorageChunk[storageCount];
-        for (int sc = 0; sc < storageCount; sc++) {
-            chunks[sc] = new StorageChunk();
-            chunks[sc].loadFromInputStream(bais, sc, debug);
+        else {
+            chunks = new StorageChunk[1];
+            chunks[0] = new StorageChunk();
+            chunks[0].addToPalette("minecraft:air");
+            ver = 8;
         }
         good = true;
     }
